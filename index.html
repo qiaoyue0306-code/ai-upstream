@@ -57,8 +57,19 @@ window.dash = (function () {
     draw: function (name, f) { if (f === undefined) run(name); else draws[name] = f; },
     onData: function (f) { onD.push(f); },
     colors: ['#005285', '#C39B59', '#7C7C7C', '#70A1C0', '#D6C88B', '#C9C9C9'],
-    params: function () { return {}; }, setParams: function () {}, resetParams: function () {}, setLink: function () {}, refresh: function () {},
-    _runAll: function () { onD.forEach(function (f) { try { f(); } catch (e) { console.error(e); } }); Object.keys(draws).forEach(run); }
+    params: function () { return {}; }, setParams: function () {}, resetParams: function () {}, refresh: function () {},
+    setLink: function (id) { try { history.replaceState(null, '', '#' + id); } catch (e) {} },
+    _runAll: function () { onD.forEach(function (f) { try { f(); } catch (e) { console.error(e); } }); Object.keys(draws).forEach(run); },
+    _watch: function () {  // 和看板一样：元素自身宽度变化（切 tab、窗口缩放）时重画
+      if (!window.ResizeObserver) return;
+      var last = new WeakMap(), t = null, pending = new Set();
+      var ro = new ResizeObserver(function (entries) {
+        entries.forEach(function (en) { var w = Math.round(en.contentRect.width), el = en.target;
+          if (last.has(el) && Math.abs(last.get(el) - w) > 4) pending.add(el.getAttribute('data-draw')); last.set(el, w); });
+        if (pending.size) { clearTimeout(t); t = setTimeout(function () { pending.forEach(run); pending.clear(); }, 120); }
+      });
+      document.querySelectorAll('[data-draw]').forEach(function (el) { ro.observe(el); });
+    }
   };
 })();
 </script>
@@ -104,35 +115,42 @@ window.dash = (function () {
 .au-tier td{background:var(--color-panel);font-weight:600;text-align:left}
 .au-chain-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .au-chain-bar .dash-select{min-width:200px;max-width:100%}
+.au-tabs{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--color-border-line);position:sticky;top:0;z-index:3;background:var(--color-bg);padding-top:4px}
+.au-tab{font:inherit;font-size:var(--cds-font-size-body);color:var(--color-fg-muted);background:none;border:0;border-bottom:2px solid transparent;margin-bottom:-1px;padding:8px 12px;cursor:pointer;white-space:nowrap}
+.au-tab:hover{color:var(--color-fg)}
+.au-tab[aria-selected=true]{color:var(--color-fg);border-bottom-color:var(--color-fg);font-weight:var(--cds-font-weight-medium)}
 </style>
 
 <div class="au">
   <header id="top">
     <h1 class="au-title">AI 上游基本面</h1>
     <p class="au-stamp">更新于 2026-11-10。数据来自 SEC、公开资讯观测站、DRAMeXchange、OpenRouter、Yahoo Finance 等公开来源，口径和信源等级见各图说明与页底。</p>
-    <p class="au-take">5 家云厂最近一季（<b data-draw="t-capq" data-source="kpi" data-field="d" data-where="k=capex">—</b>）现金资本开支合计 <b data-draw="t-cap" data-source="kpi" data-field="v" data-where="k=capex">—</b> 亿美元，同比 <b data-draw="t-capy" data-source="kpi" data-field="v" data-where="k=capex_yoy">—</b>%。台湾 AI 供应链（不含存储，按已公布的公司）<b data-draw="t-twm" data-source="kpi" data-field="d" data-where="k=tw_yoy">—</b> 月营收同比 <b data-draw="t-tw" data-source="kpi" data-field="v" data-where="k=tw_yoy">—</b>%。Anthropic 最近一季算力支出环比 <b data-draw="t-ac" data-source="kpi" data-field="v" data-where="k=ant_compute_qoq">—</b>%，收入环比 <b data-draw="t-ar" data-source="kpi" data-field="v" data-where="k=ant_rev_qoq">—</b>%<span id="t-faster" hidden>，算力跑在收入前面</span><span id="t-slower" hidden>，收入跑在算力前面</span>。</p>
+    <p class="au-take">5 家云厂最近一季（<b data-draw="t-capq" data-source="kpi" data-field="d" data-where="k=capex">—</b>）现金资本开支合计 <b data-draw="t-cap" data-source="kpi" data-field="v" data-where="k=capex">—</b> 亿美元，同比 <b data-draw="t-capy" data-source="kpi" data-field="v" data-where="k=capex_yoy">—</b>%。Anthropic 最近一季算力支出环比 <b data-draw="t-ac" data-source="kpi" data-field="v" data-where="k=ant_compute_qoq">—</b>%，收入环比 <b data-draw="t-ar" data-source="kpi" data-field="v" data-where="k=ant_rev_qoq">—</b>%<span id="t-faster" hidden>，算力跑在收入前面</span><span id="t-slower" hidden>，收入跑在算力前面</span>。</p>
     <p class="au-muted">数据截至 <span data-draw="asof" data-source="kpi" data-field="d" data-where="k=asof">—</span>。看的是 AI 产业链：模型收入 → 云厂资本开支 → 上游的量和价。</p>
   </header>
+  <nav class="au-tabs" role="tablist" aria-label="看板分区">
+    <button type="button" class="au-tab" role="tab" id="tab-demand" data-tab="demand" aria-controls="demand" aria-selected="true">云 capex</button>
+    <button type="button" class="au-tab" role="tab" id="tab-chains" data-tab="chains" aria-controls="chains" aria-selected="false">各硬件量价</button>
+    <button type="button" class="au-tab" role="tab" id="tab-price" data-tab="price" aria-controls="price" aria-selected="false">价：租价与存储</button>
+    <button type="button" class="au-tab" role="tab" id="tab-models" data-tab="models" aria-controls="models" aria-selected="false">模型</button>
+    <button type="button" class="au-tab" role="tab" id="tab-earnings" data-tab="earnings" aria-controls="earnings" aria-selected="false">财报拆解</button>
+    <button type="button" class="au-tab" role="tab" id="tab-pricing" data-tab="pricing" aria-controls="pricing" aria-selected="false">股价分布</button>
+  </nav>
 
 
-  <section class="au-sec" id="demand">
-    <h2 class="au-h">需求：云厂资本开支与上游收入</h2>
+  <section class="au-sec" id="demand" role="tabpanel">
+    <h2 class="au-h">云 capex：资本开支、指引与资金压力</h2>
     <p class="au-muted">来自 SEC 申报的季度现金流量表，单位亿美元。现金 capex 不含融资租赁（微软、Meta 的租赁不小），所以比电话会里说的口径低。财年不同的公司按季度中点归到日历季度。</p>
-    <div class="au-two">
+    <div>
       <div class="au-card" id="chart-capex">
         <h3 class="au-sub">5 家云厂季度现金 capex，亿美元</h3>
         <p class="au-legend" data-draw="capex-legend"></p>
         <div class="au-chart" data-draw="capex" data-source="sec capex_sum">—</div>
       </div>
-      <div class="au-card" id="chart-upstream">
-        <h3 class="au-sub">上游芯片公司季度收入，亿美元</h3>
-        <p class="au-legend" data-draw="up-legend"></p>
-        <div class="au-chart" data-draw="upstream" data-source="sec">—</div>
-      </div>
     </div>
     <div class="au-card" id="chart-capex-guide">
       <h3 class="au-sub">全年 capex：已报实际 vs 公司指引，亿美元</h3>
-      <p class="au-legend"><span><i style="background:#C9C9C9"></i>2024 实际</span><span><i style="background:#70A1C0"></i>2025 实际</span><span><i style="background:#005285"></i>2026 已报实际</span><span><i style="background:#C39B59"></i>2026 公司指引（区间）</span></p>
+      <p class="au-legend"><span><i style="background:#C9C9C9"></i>2024 实际</span><span><i style="background:#93AECB"></i>2025 实际</span><span><i style="background:#4F6D8F"></i>2026 已报实际</span><span><i style="background:#C8735F"></i>2026 公司指引（区间）</span></p>
       <p class="au-muted">实际值来自 SEC 季报。Meta 和微软的指引含融资租赁，所以它们的实际值也加上了融资租赁本金支付，两边口径一致；其余用现金 capex。“隐含剩余每季”= (指引中值 − 已报) ÷ 剩余季度数，“对比最近一季”看剩下的季度要比最近一季多花还是少花。甲骨文按财年（截至 2027 年 5 月）。微软的指引是媒体转述的约数，可信度最低。卖方一致预期需要终端数据，暂未接入。</p>
       <div class="au-chart" data-draw="capex-guide" data-source="capex_annual capex_guide fin">—</div>
       <div class="au-scroll">
@@ -142,77 +160,47 @@ window.dash = (function () {
         </table>
       </div>
     </div>
-  </section>
-
-
-  <section class="au-sec" id="funding">
-    <h2 class="au-h">云厂与 neocloud 的资金压力</h2>
-    <p class="au-muted">来自 SEC 申报。capex 占经营现金流的比例越高、自由现金流越负，越要靠发债和股权融资来撑资本开支，这也是信用市场（CDS）在定价的东西。RPO 是已签约、还没确认的收入，是需求的前瞻读数。单位亿美元。</p>
-    <div class="au-two">
-      <div class="au-card" id="chart-capexocf">
-        <h3 class="au-sub">capex / 经营现金流，%</h3>
-        <p class="au-legend" data-draw="fund-legend"></p>
-        <div class="au-chart" data-draw="capexocf" data-source="fin">—</div>
+    <div class="au-sec" id="funding">
+      <h2 class="au-h">云厂与 neocloud 的资金压力</h2>
+      <p class="au-muted">来自 SEC 申报。capex 占经营现金流的比例越高、自由现金流越负，越要靠发债和股权融资来撑资本开支，这也是信用市场（CDS）在定价的东西。RPO 是已签约、还没确认的收入，是需求的前瞻读数。单位亿美元。</p>
+      <div class="au-two">
+        <div class="au-card" id="chart-capexocf">
+          <h3 class="au-sub">capex / 经营现金流，%</h3>
+          <p class="au-legend" data-draw="fund-legend"></p>
+          <div class="au-chart" data-draw="capexocf" data-source="fin">—</div>
+        </div>
+        <div class="au-card" id="chart-fcf">
+          <h3 class="au-sub">季度自由现金流（经营现金流 − capex），亿美元</h3>
+          <p class="au-legend" data-draw="fund-legend2"></p>
+          <div class="au-chart" data-draw="fcf" data-source="fin">—</div>
+        </div>
       </div>
-      <div class="au-card" id="chart-fcf">
-        <h3 class="au-sub">季度自由现金流（经营现金流 − capex），亿美元</h3>
-        <p class="au-legend" data-draw="fund-legend2"></p>
-        <div class="au-chart" data-draw="fcf" data-source="fin">—</div>
-      </div>
-    </div>
-    <div class="au-card" id="table-fund">
-      <h3 class="au-sub">最近一季读数</h3>
-      <p class="au-muted">长期债务不含租赁负债；微软、Meta、甲骨文的融资租赁和数据中心租约另有大额承诺，没算进来。CoreWeave 的 capex 和债务都按申报原值。</p>
-      <div class="au-scroll">
-        <table class="au-table" data-source="fin_latest" data-row-key="ticker">
-          <thead><tr><th class="l" data-field="company">公司</th><th class="l" data-field="quarter_end">季末</th><th data-field="capex">capex</th><th data-field="ocf">经营现金流</th><th data-field="fcf">自由现金流</th><th data-field="capex_ocf_pct">capex/OCF %</th><th data-field="capex_rev_pct">capex/收入 %</th><th data-field="debt">长期债务</th><th data-field="rpo">RPO</th></tr></thead>
-          <tbody data-draw="fund-rows"></tbody>
-        </table>
-      </div>
-    </div>
-  </section>
-
-  <section class="au-sec" id="volume">
-    <h2 class="au-h">量：台湾 AI 供应链月营收</h2>
-    <p class="au-muted">来自公开资讯观测站的 44 家上市、上柜公司月营收，按 8 个环节加总后算同比，线是 3 个月滚动同比，可以平滑掉春节和出货节奏。这是全球 AI 硬件出货最快的月度读数，比美股财报早 1–2 个月。</p>
-    <div class="au-card" id="chart-tw">
-      <h3 class="au-sub">各环节 3 个月滚动营收同比，%</h3>
-      <p class="au-legend" data-draw="tw-legend"></p>
-      <div class="au-chart" data-draw="tw" data-source="tw_group">—</div>
-    </div>
-    <div class="au-card" id="table-tw-sum">
-      <h3 class="au-sub">最新月份：各环节汇总和龙头</h3>
-      <p class="au-muted">看行业变化先看这张：每个环节当月营收合计、同比，以及营收最大的两家公司和它们在本环节的占比。龙头占比高的环节，环节的同比基本就是龙头的同比。</p>
-      <div class="au-scroll">
-        <table class="au-table" data-source="tw_sum" data-row-key="group">
-          <thead><tr><th class="l" data-field="group">环节</th><th data-field="rev">营收，亿新台币</th><th data-field="yoy">同比 %</th><th data-field="reported">已公布家数</th><th class="l" data-field="leaders">龙头（占本环节营收）</th></tr></thead>
-          <tbody data-draw="tw-sum-rows"></tbody>
-        </table>
-      </div>
-      <details>
-        <summary>展开全部公司明细</summary>
-        <p class="au-muted">营收单位亿新台币。加粗、带底色的是占本环节营收 15% 以上的公司。环比受出货节奏影响大，看同比为主。</p>
+      <div class="au-card" id="table-fund">
+        <h3 class="au-sub">最近一季读数</h3>
+        <p class="au-muted">长期债务不含租赁负债；微软、Meta、甲骨文的融资租赁和数据中心租约另有大额承诺，没算进来。CoreWeave 的 capex 和债务都按申报原值。</p>
         <div class="au-scroll">
-          <table class="au-table" data-source="tw_co" data-row-key="code">
-            <thead><tr><th class="l" data-field="group">环节</th><th class="l" data-field="name">公司</th><th class="l" data-field="code">代码</th><th data-field="rev_100m_twd">营收</th><th data-field="share_pct">环节占比 %</th><th data-field="yoy_pct">同比 %</th><th data-field="mom_pct">环比 %</th><th class="l" data-field="month">月份</th></tr></thead>
-            <tbody data-draw="tw-rows"></tbody>
+          <table class="au-table" data-source="fin_latest" data-row-key="ticker">
+            <thead><tr><th class="l" data-field="company">公司</th><th class="l" data-field="quarter_end">季末</th><th data-field="capex">capex</th><th data-field="ocf">经营现金流</th><th data-field="fcf">自由现金流</th><th data-field="capex_ocf_pct">capex/OCF %</th><th data-field="capex_rev_pct">capex/收入 %</th><th data-field="debt">长期债务</th><th data-field="rpo">RPO</th></tr></thead>
+            <tbody data-draw="fund-rows"></tbody>
           </table>
         </div>
-      </details>
+      </div>
     </div>
   </section>
 
 
-  <section class="au-sec" id="chains">
-    <h2 class="au-h">分链条量价：存储、光模块、PCB 与更上游</h2>
-    <p class="au-muted">上面是全球头部公司的季度数据，可以切换收入、同比、环比、利润和毛利率；下面左边是台湾公司的月营收，是出货最快的读数；右边是毛利率，可以看成价格和议价能力的代理。毛利率在收入还在涨的时候先拐，通常是价格先松动的信号。</p>
+
+
+
+  <section class="au-sec" id="chains" role="tabpanel" hidden>
+    <h2 class="au-h">各硬件量价：存储、光模块、PCB 与更上游</h2>
+    <p class="au-muted">上面是全球头部公司的季度数据，可以切换收入、同比、环比、利润和毛利率；下面左边是季度环比（收入或经营利润），看量的拐点；右边是毛利率，可以看成价格和议价能力的代理。毛利率在收入还在涨的时候先拐，通常是价格先松动的信号。</p>
     <div class="au-chain-bar">
       <label class="au-tl" for="chain-select">选择链条</label>
       <select class="dash-select" id="chain-select" aria-label="选择链条">
         <option value="mem">存储</option>
         <option value="opt">光模块与网络</option>
         <option value="pcb">PCB 与封测</option>
-        <option value="mat">上游材料（硅片、玻纤布、铜箔）</option>
         <option value="eqp">半导体设备</option>
         <option value="cmp">计算芯片与代工</option>
         <option value="srv">服务器与电力</option>
@@ -235,18 +223,16 @@ window.dash = (function () {
       <div class="au-chart" data-draw="chain-global" data-source="fin fx">—</div>
     </div>
     <div class="au-two">
-      <div class="au-card" id="chart-chain-tw">
+      <div class="au-card" id="chart-chain-qoq">
         <div class="au-chain-bar">
-          <h3 class="au-sub">台湾公司月营收</h3>
-          <select class="dash-select" id="chain-twmetric" aria-label="台湾公司指标">
-            <option value="rev_100m_twd">月营收，亿新台币</option>
-            <option value="yoy_3m_pct">3 个月滚动同比，%</option>
-            <option value="qoq_3m_pct">季度环比（近 3 个月对比前 3 个月），%</option>
-            <option value="mom_pct">月环比，%</option>
+          <h3 class="au-sub">全球头部公司季度环比，%</h3>
+          <select class="dash-select" id="chain-qmetric" aria-label="环比指标">
+            <option value="rev_qoq_pct">收入环比</option>
+            <option value="op_qoq_pct">经营利润环比</option>
           </select>
         </div>
-        <p class="au-legend" data-draw="chain-tw-legend"></p>
-        <div class="au-chart" data-draw="chain-tw" data-source="tw_cm">—</div>
+        <p class="au-legend" data-draw="chain-fin-legend3"></p>
+        <div class="au-chart" data-draw="chain-qoq" data-source="fin">—</div>
       </div>
       <div class="au-card" id="chart-chain-gm">
         <h3 class="au-sub">全球头部公司季度毛利率，%</h3>
@@ -254,37 +240,34 @@ window.dash = (function () {
         <div class="au-chart" data-draw="chain-gm" data-source="fin">—</div>
       </div>
     </div>
+    <div class="au-card" id="chart-upstream">
+        <h3 class="au-sub">上游芯片公司季度收入，亿美元</h3>
+        <p class="au-muted">来自 SEC 季报，财年不同的公司按季度中点归到日历季度。</p>
+        <p class="au-legend" data-draw="up-legend"></p>
+        <div class="au-chart" data-draw="upstream" data-source="sec">—</div>
+        <p class="au-muted">AMD、美光已更新到 26Q3。英伟达、博通的财季截至 10 月底，26Q3 还没公布：英伟达 11 月 17 日发，博通一般在 12 月中。</p>
+      </div>
   </section>
 
-  <section class="au-sec" id="price">
+  <section class="au-sec" id="price" role="tabpanel" hidden>
     <h2 class="au-h">价：GPU 租价与存储现货</h2>
     <p class="au-muted">GPU 租价是供需最实时的读数。Vast.ai 是散户和小机房的挂单市场，样本小、波动大，不等于 neocloud 合约价，适合看方向和代际价差；Silicon Data 的指数点是手工摘录的，作为对照。两者都从今天起每天累积。</p>
     <div class="au-two">
       <div class="au-card" id="chart-gpu">
         <h3 class="au-sub">各型号 GPU 现货租价，美元/卡·小时</h3>
-        <p class="au-legend"><span><i style="background:#005285"></i>中位数</span><span><i style="background:#D6C88B"></i>25–75 分位区间</span></p>
+        <p class="au-legend"><span><i style="background:#4F6D8F"></i>中位数</span><span><i style="background:#E4B3A5"></i>25–75 分位区间</span></p>
         <div class="au-chart" data-draw="gpu" data-source="gpu_rent">—</div>
       </div>
       <div class="au-card" id="chart-gpuref">
         <h3 class="au-sub">Silicon Data 租价指数（摘录），美元/卡·小时</h3>
-        <p class="au-legend"><span><i style="background:#005285"></i>H100 neocloud 指数</span><span><i style="background:#C39B59"></i>B200 指数</span></p>
+        <p class="au-legend"><span><i style="background:#4F6D8F"></i>H100 neocloud 指数</span><span><i style="background:#C8735F"></i>B200 指数</span></p>
         <div class="au-chart" data-draw="gpuref" data-source="gpu_ref">—</div>
-      </div>
-    </div>
-    <div class="au-card" id="table-dram">
-      <h3 class="au-sub">DRAM / NAND 现货价，美元</h3>
-      <p class="au-muted">DRAMeXchange 首页的当日现货均价和当日涨跌。历史走势见下方两张图。DDR5 当日高低价差很大时，说明现货市场成交稀薄。</p>
-      <div class="au-scroll">
-        <table class="au-table" data-source="dram" data-row-key="item">
-          <thead><tr><th class="l" data-field="item">品项</th><th class="l" data-field="table">类别</th><th data-field="avg">均价</th><th data-field="change_pct">当日 %</th><th class="l" data-field="date">日期</th></tr></thead>
-          <tbody data-draw="dram-rows"></tbody>
-        </table>
       </div>
     </div>
     <div class="au-two">
       <div class="au-card" id="chart-dram-idx">
         <h3 class="au-sub">存储现货价走势，指数化（首个读数 = 100）</h3>
-        <p class="au-legend"><span><i style="background:#005285"></i>DDR5 16Gb</span><span><i style="background:#C39B59"></i>DDR4 8Gb</span><span><i style="background:#70A1C0"></i>NAND 512Gb TLC</span><span><i style="background:#7C7C7C"></i>NAND 256Gb TLC</span></p>
+        <p class="au-legend"><span><i style="background:#4F6D8F"></i>DDR5 16Gb</span><span><i style="background:#C8735F"></i>DDR4 8Gb</span><span><i style="background:#86A47A"></i>NAND 512Gb TLC</span><span><i style="background:#7C7C7C"></i>NAND 256Gb TLC</span></p>
         <p class="au-muted">2024 年以来大约每周一个点，来自互联网档案馆保存的 DRAMeXchange 首页快照，今天起接上本地每日抓取。快照日期不完全均匀，中间偶有缺口。</p>
         <div class="au-chart" data-draw="dram-idx" data-source="dram_h">—</div>
       </div>
@@ -302,14 +285,33 @@ window.dash = (function () {
       <p class="au-muted">每个大类挑一个代表品项：DRAM 新旧两代、显存、服务器模组、NAND 晶圆、存储卡。服务器模组的报价从 2025 年 11 月才开始有。</p>
       <div class="au-grid3" data-draw="dram-cats" data-source="dram_h"></div>
     </div>
+    <div class="au-card" id="table-dram">
+      <h3 class="au-sub">DRAM / NAND 现货价，美元</h3>
+      <p class="au-muted">DRAMeXchange 首页的当日现货均价和当日涨跌，历史走势见上方的图。这里只列主流代表品项，其余在下面折叠。DDR5 当日高低价差很大时，说明现货市场成交稀薄。</p>
+      <div class="au-scroll">
+        <table class="au-table" data-source="dram" data-row-key="item">
+          <thead><tr><th class="l" data-field="item">品项</th><th class="l" data-field="table">类别</th><th data-field="avg">均价</th><th data-field="change_pct">当日 %</th><th class="l" data-field="date">日期</th></tr></thead>
+          <tbody data-draw="dram-key-rows"></tbody>
+        </table>
+      </div>
+      <details id="dram-all">
+        <summary>全部品项（含 eTT、DDR3、SLC/MLC、存储卡等）</summary>
+        <div class="au-scroll">
+          <table class="au-table" data-source="dram" data-row-key="item">
+            <thead><tr><th class="l" data-field="item">品项</th><th class="l" data-field="table">类别</th><th data-field="avg">均价</th><th data-field="change_pct">当日 %</th><th class="l" data-field="date">日期</th></tr></thead>
+            <tbody data-draw="dram-rows"></tbody>
+          </table>
+        </div>
+      </details>
+    </div>
   </section>
 
-  <section class="au-sec" id="models">
+  <section class="au-sec" id="models" role="tabpanel" hidden>
     <h2 class="au-h">模型：收入、算力与新模型定价</h2>
     <div class="au-two">
       <div class="au-card" id="chart-ant">
         <h3 class="au-sub">Anthropic 季度收入与算力支出，亿美元</h3>
-        <p class="au-legend"><span><i style="background:#005285"></i>收入</span><span><i style="background:#C39B59"></i>算力与基础设施</span></p>
+        <p class="au-legend"><span><i style="background:#4F6D8F"></i>收入</span><span><i style="background:#C8735F"></i>算力与基础设施</span></p>
         <p class="au-muted">S-1/A（11/2）的季度利润表。算力按合同交付确认，不随当季需求变化，所以算力增速快于收入时，说明前期采购的产能在落地。</p>
         <div class="au-chart" data-draw="ant" data-source="ant_q">—</div>
       </div>
@@ -332,7 +334,7 @@ window.dash = (function () {
   </section>
 
 
-  <section class="au-sec" id="earnings">
+  <section class="au-sec" id="earnings" role="tabpanel" hidden>
     <h2 class="au-h">全球头部公司财报拆解</h2>
     <p class="au-muted">美股来自 SEC 申报，A 股来自新浪财经三大报表，都折成单季。金额单位亿（本币：美股为美元，A 股为人民币）。存货天数 = 季末存货 ÷ 当季营业成本 × 91；A 股的 RPO 一栏放的是合同负债。台积电、三星、SK 海力士、东京电子这些不在美国按季报 XBRL 的公司还没接上。</p>
     <div class="au-chain-bar">
@@ -349,15 +351,9 @@ window.dash = (function () {
         <option value="">全部</option>
       </select>
     </div>
-    <div class="au-card" id="chart-fin-growth">
-      <h3 class="au-sub">最近一季收入与经营利润同比，%</h3>
-      <p class="au-legend"><span><i style="background:#005285"></i>收入同比</span><span><i style="background:#C39B59"></i>经营利润同比</span></p>
-      <p class="au-muted">每行右侧是当季收入（折美元）。利润基数为负的不算同比，显示为空。</p>
-      <div class="au-chart" data-draw="fin-growth" data-source="fin_view">—</div>
-    </div>
     <div class="au-card" id="table-fin-latest">
       <h3 class="au-sub">最近一季：收入与利润</h3>
-      <p class="au-muted">金额为亿本币（美股美元、A 股人民币、海外按当地货币）。同比、环比列的底色条长度表示幅度，蓝色为正、金色为负。</p>
+      <p class="au-muted">金额为亿本币（美股美元、A 股人民币、海外按当地货币）。同比、环比列的底色条长度表示幅度，蓝色为正、红色为负。</p>
       <div class="au-scroll">
         <table class="au-table" data-source="fin_view" data-row-key="ticker">
           <thead><tr><th class="l" data-field="company">公司</th><th class="l" data-field="quarter_end">季末</th><th data-field="revenue">收入</th><th data-field="rev_yoy_pct">收入同比 %</th><th data-field="rev_qoq_pct">收入环比 %</th><th data-field="op_income">经营利润</th><th data-field="op_yoy_pct">利润同比 %</th><th data-field="op_qoq_pct">利润环比 %</th><th data-field="net_income">净利润</th><th data-field="gm_pct">毛利率 %</th><th data-field="gm_chg_pp">毛利率环比 pp</th><th data-field="inv_days">存货天数</th></tr></thead>
@@ -381,7 +377,7 @@ window.dash = (function () {
         <select class="dash-select" id="fin-company" data-draw="fin-company" data-source="fin" aria-label="选择公司"></select>
       </div>
       <h3 class="au-sub">季度收入（柱，左轴）与毛利率（线，右轴）</h3>
-      <p class="au-legend"><span><i style="background:#005285"></i>收入，亿本币</span><span><i style="background:#C39B59"></i>毛利率 %</span></p>
+      <p class="au-legend"><span><i style="background:#4F6D8F"></i>收入，亿本币</span><span><i style="background:#C8735F"></i>毛利率 %</span></p>
       <div class="au-chart" data-draw="fin-chart" data-source="fin">—</div>
       <div class="au-scroll">
         <table class="au-table" data-source="fin" data-row-key="key">
@@ -392,18 +388,13 @@ window.dash = (function () {
     </div>
   </section>
 
-  <section class="au-sec" id="pricing">
+  <section class="au-sec" id="pricing" role="tabpanel" hidden>
     <h2 class="au-h">分布：各环节股价离一年高点</h2>
-    <p class="au-muted">哪些环节已经反映了 capex 放缓，哪些还没有。条越长，离一年高点越远。</p>
-    <div class="au-card" id="chart-off">
-      <h3 class="au-sub">离一年高点，%</h3>
-      <p class="au-muted">下表加了市值和 PE（Yahoo 一致预期，二手）；分公司的收入、利润预测在“全球头部公司财报拆解”里。</p>
-      <div class="au-chart" data-draw="off" data-source="market">—</div>
-    </div>
+    <p class="au-muted">哪些环节已经反映了 capex 放缓，哪些还没有。市值和 PE 来自 Yahoo 一致预期（二手）；分公司的收入、利润预测在「财报拆解」里。</p>
     <div class="au-card" id="table-market">
       <div class="au-scroll">
         <table class="au-table" data-source="mkt_view" data-row-key="ticker">
-          <thead><tr><th class="l" data-field="layer">环节</th><th class="l" data-field="name">标的</th><th data-field="chg_1m_pct">1 个月 %</th><th data-field="chg_3m_pct">3 个月 %</th><th data-field="ytd_pct">年内 %</th><th data-field="off_high_pct">离高点 %</th><th class="l" data-field="high_date">高点日</th><th data-field="mcap_usd_100m">市值，亿美元</th><th data-field="pe_ttm">PE 过去 12 个月</th><th data-field="pe_0y">PE 本财年</th><th data-field="pe_1y">PE 下财年</th></tr></thead>
+          <thead><tr><th class="l" data-field="name">标的</th><th data-field="chg_1m_pct">1 个月 %</th><th data-field="chg_3m_pct">3 个月 %</th><th data-field="ytd_pct">年内 %</th><th data-field="off_high_pct">离高点 %</th><th class="l" data-field="high_date">高点日</th><th data-field="mcap_usd_100m">市值，亿美元</th><th data-field="pe_ttm">PE 过去 12 个月</th><th data-field="pe_0y">PE 本财年</th><th data-field="pe_1y">PE 下财年</th></tr></thead>
           <tbody data-draw="mkt-rows"></tbody>
         </table>
       </div>
@@ -423,7 +414,7 @@ window.dash = (function () {
 
 <script>
 window.AU = (function () {
-  var PAL = ['#005285', '#C39B59', '#7C7C7C', '#70A1C0', '#D6C88B', '#9DC3E6', '#C9C9C9', '#C9A66B', '#1A1A1A', '#A6A6A6', '#5B7F95'];
+  var PAL = ['#4F6D8F', '#C8735F', '#86A47A', '#D4AA5C', '#8B7AA8', '#93B4D0', '#B08D74', '#6E9A97', '#C9B89A', '#A6A6A6', '#4F5D52'];
   var GRID = '#DBDBDB', GREY = '#7C7C7C';
   function ok(id) { var s = dash.data(id); return s.status === 'ok' ? s.data : null; }
   function fmt(v, d) { return v == null || isNaN(v) ? '—' : d3.format(',.' + (d == null ? 1 : d) + 'f')(v); }
@@ -495,7 +486,7 @@ window.AU = (function () {
   }
   function dbar(td, v, max, neg) {
     if (v == null || isNaN(v) || !max) return;
-    var w = Math.min(100, Math.abs(v) / max * 100), c = v < 0 ? 'rgba(195,155,89,.28)' : 'rgba(112,161,192,.30)';
+    var w = Math.min(100, Math.abs(v) / max * 100), c = v < 0 ? 'rgba(200,115,95,.25)' : 'rgba(79,109,143,.20)';
     td.style.background = 'linear-gradient(90deg,' + c + ' ' + w + '%, transparent ' + w + '%)';
   }
   return { dbar: dbar, PAL: PAL, ok: ok, fmt: fmt, sgn: sgn, start: start, yAxis: yAxis, xLabels: xLabels, lines: lines, legend: legend, placeholder: placeholder, GRID: GRID, GREY: GREY };
@@ -650,7 +641,7 @@ dash.calc('kpi', {
     var rows = AU.ok('tw_co'); tb.replaceChildren(); if (!rows) return;
     rows.forEach(function (r) {
       var tr = document.createElement('tr'), big = +r.share_pct >= 15;
-      if (big) { tr.style.fontWeight = '600'; tr.style.background = 'rgba(112,161,192,.12)'; }
+      if (big) { tr.style.fontWeight = '600'; tr.style.background = 'rgba(79,109,143,.08)'; }
       [['group', 'l'], ['name', 'l'], ['code', 'l'], ['rev_100m_twd', '', 1], ['share_pct', '', 1], ['yoy_pct', '', 1, 1], ['mom_pct', '', 1, 1], ['month', 'l']].forEach(function (f) {
         var td = document.createElement('td'); if (f[1]) td.className = f[1];
         var v = r[f[0]];
@@ -694,9 +685,9 @@ dash.calc('kpi', {
     rows.forEach(function (r, i) {
       var yy = m.t + i * rowH + rowH / 2;
       g.append('text').attr('x', 0).attr('y', yy + 4).text(r.gpu);
-      g.append('rect').attr('x', x(+r.p25)).attr('width', Math.max(2, x(+r.p75) - x(+r.p25))).attr('y', yy - 5).attr('height', 10).attr('rx', 3).attr('fill', '#D6C88B');
-      g.append('circle').attr('cx', x(+r.median_usd_hr)).attr('cy', yy).attr('r', 5).attr('fill', '#005285');
-      g.append('text').attr('x', x(+r.p75) + 6).attr('y', yy + 4).style('font-weight', 600).style('fill', '#005285').text('$' + AU.fmt(+r.median_usd_hr, 2));
+      g.append('rect').attr('x', x(+r.p25)).attr('width', Math.max(2, x(+r.p75) - x(+r.p25))).attr('y', yy - 5).attr('height', 10).attr('rx', 3).attr('fill', '#E4B3A5');
+      g.append('circle').attr('cx', x(+r.median_usd_hr)).attr('cy', yy).attr('r', 5).attr('fill', '#4F6D8F');
+      g.append('text').attr('x', x(+r.p75) + 6).attr('y', yy + 4).style('font-weight', 600).style('fill', '#4F6D8F').text('$' + AU.fmt(+r.median_usd_hr, 2));
       c.svg.append('rect').attr('x', 0).attr('y', yy - rowH / 2).attr('width', c.w).attr('height', rowH).attr('fill', 'transparent')
         .on('pointermove', function (ev) { var p = d3.pointer(ev, el); c.tip.show([r.gpu + '（' + r.date + '）', '中位数 $' + AU.fmt(+r.median_usd_hr, 2), '25–75 分位 $' + AU.fmt(+r.p25, 2) + '–' + AU.fmt(+r.p75, 2), '挂单 ' + r.offers + ' 个，共 ' + r.gpus_listed + ' 张卡'], p[0], p[1]); })
         .on('pointerleave', function () { c.tip.hide(); });
@@ -710,7 +701,7 @@ dash.calc('kpi', {
     var y = d3.scaleLinear().domain([0, d3.max(rows, function (r) { return +r.usd_hr; }) * 1.15]).nice(5).range([c.h - m.b, m.t]);
     var g = c.svg.append('g'); AU.yAxis(g, y, m, c.w, function (v) { return '$' + v; });
     x.ticks(Math.max(2, Math.floor((c.w - m.l - m.r) / 80))).forEach(function (t) { g.append('text').attr('class', 'au-ax').attr('x', x(t)).attr('y', c.h - 6).attr('text-anchor', 'middle').text(d3.utcFormat('%y-%m')(t)); });
-    var S = [['H100 neocloud 指数', '#005285'], ['B200 指数', '#C39B59']];
+    var S = [['H100 neocloud 指数', '#4F6D8F'], ['B200 指数', '#C8735F']];
     S.forEach(function (s) {
       var pts = rows.filter(function (r) { return r.series === s[0]; }).sort(function (a, b) { return a.date < b.date ? -1 : 1; });
       g.append('path').attr('fill', 'none').attr('stroke', s[1]).attr('stroke-width', 2).attr('d', d3.line().x(function (r) { return x(pd(r.date)); }).y(function (r) { return y(+r.usd_hr); })(pts));
@@ -722,9 +713,12 @@ dash.calc('kpi', {
       var l = pts[pts.length - 1]; if (l) g.append('text').attr('x', x(pd(l.date)) + 6).attr('y', y(+l.usd_hr) + 4).style('fill', s[1]).style('font-weight', 600).text('$' + AU.fmt(+l.usd_hr, 2));
     });
   });
-  dash.draw('dram-rows', function (tb) {
+  var DRAM_KEY = ['DDR5 16Gb (2Gx8) 4800/5600', 'DDR4 16Gb (2Gx8) 3200', 'DDR4 8Gb (1Gx8) 3200', 'DDR5 RDIMM 32GB 4800/5600', 'GDDR6 8Gb', '512Gb TLC', '256Gb TLC'];
+  dash.draw('dram-key-rows', function (tb) { dramRows(tb, function (r) { return DRAM_KEY.indexOf(r.item) >= 0; }); });
+  dash.draw('dram-rows', function (tb) { dramRows(tb, function () { return true; }); });
+  function dramRows(tb, keep) {
     var rows = AU.ok('dram'); tb.replaceChildren(); if (!rows) return;
-    rows.forEach(function (r) {
+    rows.filter(keep).forEach(function (r) {
       var tr = document.createElement('tr');
       [['item', 'l'], ['table', 'l'], ['avg', '', 3], ['change_pct', '', 2, 1], ['date', 'l']].forEach(function (f) {
         var td = document.createElement('td'); if (f[1]) td.className = f[1];
@@ -735,7 +729,7 @@ dash.calc('kpi', {
       });
       tb.appendChild(tr);
     });
-  });
+  }
 })();
 </script>
 
@@ -754,9 +748,9 @@ dash.calc('kpi', {
     AU.xLabels(g, rows.map(function (r) { return r.quarter.slice(2); }), function (i) { return m.l + bw * (i + .5); }, c.h, c.w, m);
     rows.forEach(function (r, i) {
       var x0 = m.l + bw * i + bw * .12, w = bw * .36, rv = +r.revenue_musd / 100, cp = +r.compute_infra_musd / 100;
-      g.append('rect').attr('x', x0).attr('width', w).attr('y', y(rv)).attr('height', y(0) - y(rv)).attr('fill', '#005285');
-      g.append('rect').attr('x', x0 + w + 2).attr('width', w).attr('y', y(cp)).attr('height', y(0) - y(cp)).attr('fill', '#C39B59');
-      if (i >= rows.length - 2) { g.append('text').attr('x', x0 + w / 2).attr('y', y(rv) - 4).attr('text-anchor', 'middle').style('fill', '#005285').style('font-weight', 600).text(AU.fmt(rv, 0)); g.append('text').attr('x', x0 + w * 1.5 + 2).attr('y', y(cp) - 4).attr('text-anchor', 'middle').style('fill', '#C39B59').style('font-weight', 600).text(AU.fmt(cp, 0)); }
+      g.append('rect').attr('x', x0).attr('width', w).attr('y', y(rv)).attr('height', y(0) - y(rv)).attr('fill', '#4F6D8F');
+      g.append('rect').attr('x', x0 + w + 2).attr('width', w).attr('y', y(cp)).attr('height', y(0) - y(cp)).attr('fill', '#C8735F');
+      if (i >= rows.length - 2) { g.append('text').attr('x', x0 + w / 2).attr('y', y(rv) - 4).attr('text-anchor', 'middle').style('fill', '#4F6D8F').style('font-weight', 600).text(AU.fmt(rv, 0)); g.append('text').attr('x', x0 + w * 1.5 + 2).attr('y', y(cp) - 4).attr('text-anchor', 'middle').style('fill', '#C8735F').style('font-weight', 600).text(AU.fmt(cp, 0)); }
       c.svg.append('rect').attr('x', m.l + bw * i).attr('width', bw).attr('y', 0).attr('height', c.h).attr('fill', 'transparent')
         .on('pointermove', function (ev) { var p = d3.pointer(ev, el); c.tip.show([r.quarter, '收入 ' + AU.fmt(rv, 1) + ' 亿美元', '算力与基础设施 ' + AU.fmt(cp, 1) + ' 亿美元', '算力/收入 ' + AU.fmt(+r.compute_pct_rev, 1) + '%', '经营利润 ' + AU.fmt(+r.op_income_musd / 100, 1) + ' 亿美元'], p[0], p[1]); })
         .on('pointerleave', function () { c.tip.hide(); });
@@ -772,13 +766,13 @@ dash.calc('kpi', {
     var g = c.svg.append('g'); AU.yAxis(g, y, m, c.w, function (v) { return v; });
     x.ticks(Math.max(2, Math.floor((c.w - m.l - m.r) / 80))).forEach(function (t) { g.append('text').attr('class', 'au-ax').attr('x', x(t)).attr('y', c.h - 6).attr('text-anchor', 'middle').text(d3.utcFormat('%y-%m')(t)); });
     var main = rows.filter(function (r) { return r.src_level !== '推算'; });
-    g.append('path').attr('fill', 'none').attr('stroke', '#005285').attr('stroke-width', 2).attr('d', d3.line().x(function (r) { return x(pd(r.date)); }).y(function (r) { return y(+r.arr_busd); })(main));
+    g.append('path').attr('fill', 'none').attr('stroke', '#4F6D8F').attr('stroke-width', 2).attr('d', d3.line().x(function (r) { return x(pd(r.date)); }).y(function (r) { return y(+r.arr_busd); })(main));
     rows.forEach(function (r) {
       var filled = r.src_level === '公司表态', est = r.src_level === '推算';
-      g.append('circle').attr('cx', x(pd(r.date))).attr('cy', y(+r.arr_busd)).attr('r', 5).attr('fill', est ? '#fff' : (filled ? '#005285' : '#9DC3E6')).attr('stroke', est ? '#C39B59' : '#005285').attr('stroke-width', 1.5)
+      g.append('circle').attr('cx', x(pd(r.date))).attr('cy', y(+r.arr_busd)).attr('r', 5).attr('fill', est ? '#fff' : (filled ? '#4F6D8F' : '#C7D5E4')).attr('stroke', est ? '#C8735F' : '#4F6D8F').attr('stroke-width', 1.5)
         .on('pointermove', function (ev) { var p = d3.pointer(ev, el); c.tip.show([r.date + '  $' + r.arr_busd + 'B', r.src_level + '：' + r.source], p[0], p[1]); })
         .on('pointerleave', function () { c.tip.hide(); });
-      g.append('text').attr('x', x(pd(r.date))).attr('y', y(+r.arr_busd) - 9).attr('text-anchor', 'middle').style('fill', est ? '#C39B59' : '#005285').text(r.arr_busd);
+      g.append('text').attr('x', x(pd(r.date))).attr('y', y(+r.arr_busd) - 9).attr('text-anchor', 'middle').style('fill', est ? '#C8735F' : '#4F6D8F').text(r.arr_busd);
     });
   });
   dash.draw('models', function (el) {
@@ -799,7 +793,7 @@ dash.calc('kpi', {
         .on('pointerleave', function () { c.tip.hide(); });
     });
   });
-  var TIERS = [[20, '旗舰档：输出 ≥ $20', '#C39B59'], [8, '高端档：输出 $8–20', '#D6C88B'], [3, '主力档：输出 $3–8', '#70A1C0'], [1, '经济档：输出 $1–3', '#9DC3E6'], [0, 'Flash 档：输出 < $1', '#C9C9C9']];
+  var TIERS = [[20, '旗舰档：输出 ≥ $20', '#C8735F'], [8, '高端档：输出 $8–20', '#E4B3A5'], [3, '主力档：输出 $3–8', '#93AECB'], [1, '经济档：输出 $1–3', '#C7D5E4'], [0, 'Flash 档：输出 < $1', '#C9C9C9']];
   dash.draw('model-rows', function (tb) {
     var rows = AU.ok('models'); tb.replaceChildren(); if (!rows || !rows.length) return;
     var last = rows.map(function (r) { return r.created; }).sort().pop();
@@ -843,7 +837,7 @@ dash.calc('kpi', {
         var v = +r.off_high_pct;
         if (i === 0) g.append('text').attr('x', 0).attr('y', yy + 14).style('fill', '#7C7C7C').text(L);
         g.append('text').attr('x', 76).attr('y', yy + 14).text(r.name);
-        g.append('rect').attr('x', x(v)).attr('width', Math.max(1, x(0) - x(v))).attr('y', yy + 3).attr('height', rowH - 6).attr('fill', r.layer === '指数' ? '#7C7C7C' : (v < -40 ? '#C39B59' : '#005285'));
+        g.append('rect').attr('x', x(v)).attr('width', Math.max(1, x(0) - x(v))).attr('y', yy + 3).attr('height', rowH - 6).attr('fill', r.layer === '指数' ? '#7C7C7C' : (v < -40 ? '#C8735F' : '#4F6D8F'));
         g.append('text').attr('x', x(v) - 4).attr('y', yy + 14).attr('text-anchor', 'end').attr('class', 'au-ax').text(AU.fmt(v, 0) + '%');
         c.svg.append('rect').attr('x', 0).attr('y', yy).attr('width', c.w).attr('height', rowH).attr('fill', 'transparent')
           .on('pointermove', function (ev) { var p = d3.pointer(ev, el); c.tip.show([r.name + '（' + r.ticker + '）', '离高点 ' + AU.fmt(v, 1) + '%，高点 ' + r.high_date, '1 个月 ' + AU.sgn(+r.chg_1m_pct, 1) + '%，年内 ' + AU.sgn(+r.ytd_pct, 1) + '%'], p[0], p[1]); })
@@ -857,17 +851,36 @@ dash.calc('kpi', {
   dash.draw('mkt-rows', function (tb) {
     var rows = AU.ok('mkt_view'); tb.replaceChildren(); if (!rows) return;
     var mo = d3.max(rows, function (r) { return Math.abs(+r.off_high_pct); });
-    rows.forEach(function (r) {
-      var tr = document.createElement('tr'); tr.setAttribute('data-key', encodeURIComponent(r.ticker));
-      [['layer', 'l'], ['name', 'l'], ['chg_1m_pct', '', 1, 1], ['chg_3m_pct', '', 1, 1], ['ytd_pct', '', 1, 1], ['off_high_pct', '', 1, 1], ['high_date', 'l'], ['mcap_usd_100m', '', 0], ['pe_ttm', '', 1], ['pe_0y', '', 1], ['pe_1y', '', 1]].forEach(function (f) {
-        var td = document.createElement('td'); if (f[1]) td.className = f[1];
-        var v = r[f[0]];
-        if (f[2] == null) td.textContent = v;
-        else if (v === '' || v == null) td.textContent = '—';
-        else { var n = +v; td.textContent = f[3] ? AU.sgn(n, f[2]) : AU.fmt(n, f[2]); if (f[3]) td.classList.add(n >= 0 ? 'au-pos' : 'au-neg'); if (f[0] === 'off_high_pct') AU.dbar(td, n, mo); }
-        tr.appendChild(td);
+    var COLS = [['name', 'l'], ['chg_1m_pct', '', 1, 1], ['chg_3m_pct', '', 1, 1], ['ytd_pct', '', 1, 1], ['off_high_pct', '', 1, 1], ['high_date', 'l'], ['mcap_usd_100m', '', 0], ['pe_ttm', '', 1], ['pe_0y', '', 1], ['pe_1y', '', 1]];
+    var peMax = {};
+    ['pe_ttm', 'pe_0y', 'pe_1y'].forEach(function (k) {
+      var vs = rows.map(function (r) { return r[k] === '' || r[k] == null ? NaN : Math.abs(+r[k]); }).filter(function (v) { return !isNaN(v); }).sort(d3.ascending);
+      peMax[k] = vs.length ? d3.quantile(vs, .9) : 0;
+    });
+    var order = [], groups = {};
+    rows.forEach(function (r) { var g = r.layer || '其他'; if (!groups[g]) { groups[g] = []; order.push(g); } groups[g].push(r); });
+    order.forEach(function (g, gi) {
+      var hr = document.createElement('tr'); hr.className = 'au-tier';
+      var hd = document.createElement('td'); hd.colSpan = COLS.length; hd.textContent = g + '（' + groups[g].length + ' 个）';
+      hd.style.borderLeft = '4px solid ' + AU.PAL[gi % AU.PAL.length]; hr.appendChild(hd); tb.appendChild(hr);
+      groups[g].forEach(function (r) {
+        var tr = document.createElement('tr'); tr.setAttribute('data-key', encodeURIComponent(r.ticker));
+        COLS.forEach(function (f, ci) {
+          var td = document.createElement('td'); if (f[1]) td.className = f[1];
+          if (ci === 0) td.style.paddingLeft = '16px';
+          var v = r[f[0]];
+          if (f[2] == null) td.textContent = v;
+          else if (v === '' || v == null) td.textContent = '—';
+          else {
+            var n = +v; td.textContent = f[3] ? AU.sgn(n, f[2]) : AU.fmt(n, f[2]);
+            if (f[3]) td.classList.add(n >= 0 ? 'au-pos' : 'au-neg');
+            if (f[0] === 'off_high_pct') AU.dbar(td, n, mo);
+            if (peMax[f[0]]) AU.dbar(td, n, peMax[f[0]]);
+          }
+          tr.appendChild(td);
+        });
+        tb.appendChild(tr);
       });
-      tb.appendChild(tr);
     });
   });
 })();
@@ -911,18 +924,17 @@ dash.calc('fin_view', {
 <script>
 (function () {
   var CH = {
-    mem: { tw: ['存储'], fin: ['存储'], note: '存储的价格信号最直接：DRAM/NAND 现货（见下方“价”）、南亚科和华邦电的月营收（几乎全是报价 × 出货）、美光、三星、SK 海力士和闪迪的毛利率。' },
-    opt: { tw: ['网通/光通讯'], fin: ['光与网络'], note: '光模块没有公开现货价，用中际旭创、新易盛、Lumentum、Coherent 的毛利率看议价能力，用台湾光通讯公司的月营收看出货。' },
-    pcb: { tw: ['PCB/CCL', '封测/测试'], fin: ['PCB/封测'], note: 'AI 服务器 PCB 和 CCL 是量价齐升的环节：台光电、台燿的月营收看高阶 CCL，沪电、胜宏、TTM 的毛利率看价格。' },
-    mat: { tw: ['上游材料'], fin: [], note: '更上游的材料：环球晶（硅片）、台玻和富乔、德宏（玻纤纱与玻纤布）、南亚（CCL、铜箔、玻纤）、金居（铜箔）。只有台湾月营收，没有对应的季报公司。' },
-    eqp: { tw: [], fin: ['半导体设备'], note: '设备是 capex 的下游订单：应用材料、泛林、科磊、ASML、东京电子、爱德万和北方华创、中微。台湾月营收里没有对应公司。' },
-    cmp: { tw: ['晶圆代工/ASIC'], fin: ['计算芯片'], note: '台积电和 ASIC 设计服务（世芯、创意）的月营收，对照英伟达、AMD、博通、Marvell 和台积电的季度收入。' },
-    srv: { tw: ['服务器ODM', '散热/电源'], fin: ['服务器/电力'], note: '整机和配套：鸿海、广达、纬颖等 ODM 和奇鋐、台达电的月营收，对照戴尔、超微、Vertiv。' }
+    mem: { fin: ['存储'], note: '存储的价格信号最直接：DRAM/NAND 现货（见“价”tab），以及美光、三星、SK 海力士、闪迪的毛利率。' },
+    opt: { fin: ['光与网络'], note: '光模块没有公开现货价，用中际旭创、新易盛、Lumentum、Coherent 的毛利率看议价能力，用收入环比看出货。' },
+    pcb: { fin: ['PCB/封测'], note: 'AI 服务器 PCB 和 CCL 是量价齐升的环节：沪电、胜宏、生益、深南、TTM 的收入环比看量，毛利率看价。' },
+    eqp: { fin: ['半导体设备'], note: '设备是 capex 的下游订单：应用材料、泛林、科磊、ASML、东京电子、爱德万和北方华创、中微。' },
+    cmp: { fin: ['计算芯片'], note: '英伟达、AMD、博通、Marvell 和台积电的季度收入与毛利率。' },
+    srv: { fin: ['服务器/电力'], note: '整机和配套：戴尔、超微、Vertiv。' }
   };
   window.AU_CHAIN = window.AU_CHAIN || 'mem';
   window.AU_GM = window.AU_GM || 'revenue';
-  window.AU_TWM = window.AU_TWM || 'rev_100m_twd';
-  var ALL = ['chain-note', 'chain-tw-legend', 'chain-tw', 'chain-fin-legend', 'chain-fin-legend2', 'chain-global', 'chain-gm'];
+  window.AU_QM = window.AU_QM || 'rev_qoq_pct';
+  var ALL = ['chain-note', 'chain-fin-legend', 'chain-fin-legend2', 'chain-fin-legend3', 'chain-global', 'chain-qoq', 'chain-gm'];
   function bind(id, key, draws) {
     document.querySelectorAll('#' + id).forEach(function (sel) {
       sel.addEventListener('change', function () { window[key] = sel.value; draws.forEach(function (n) { dash.draw(n); }); });
@@ -930,13 +942,8 @@ dash.calc('fin_view', {
   }
   bind('chain-select', 'AU_CHAIN', ALL);
   bind('chain-gmetric', 'AU_GM', ['chain-global']);
-  bind('chain-twmetric', 'AU_TWM', ['chain-tw']);
+  bind('chain-qmetric', 'AU_QM', ['chain-qoq']);
   function cur() { return CH[window.AU_CHAIN] || CH.mem; }
-  function twCos() {
-    var rows = AU.ok('tw_cm') || [], seen = {}, out = [], last = {};
-    rows.forEach(function (r) { if (cur().tw.indexOf(r.group) >= 0) { if (!seen[r.code]) { seen[r.code] = 1; out.push({ code: r.code, name: r.name }); } last[r.code] = +r.rev_100m_twd; } });
-    return out.sort(function (a, b) { return (last[b.code] || 0) - (last[a.code] || 0); });
-  }
   function finCos() {
     var rows = AU.ok('fin') || [], seen = {}, out = [], rev = {};
     rows.forEach(function (r) { if (cur().fin.indexOf(r.group) >= 0) { if (!seen[r.ticker]) { seen[r.ticker] = 1; out.push({ ticker: r.ticker, name: r.company, cur: r.currency }); } rev[r.ticker] = +r.revenue * fx(r.currency); } });
@@ -945,18 +952,18 @@ dash.calc('fin_view', {
   function fx(c) { var f = AU.ok('fx') || []; var r = f.find(function (x) { return x.currency === c; }); return r ? +r.usd_per_unit : (c === 'USD' ? 1 : NaN); }
   function msg(el, s) { el.replaceChildren(); el.textContent = s; }
   dash.draw('chain-note', function (el) { el.textContent = cur().note; });
-  dash.draw('chain-tw-legend', function (el) { AU.legend(el, twCos().map(function (c, i) { return { name: c.name, color: AU.PAL[i % AU.PAL.length] }; })); });
+  dash.draw('chain-fin-legend3', function (el) { AU.legend(el, finCos().map(function (c, i) { return { name: c.name, color: AU.PAL[i % AU.PAL.length] }; })); });
   dash.draw('chain-fin-legend', function (el) { AU.legend(el, finCos().map(function (c, i) { return { name: c.name, color: AU.PAL[i % AU.PAL.length] }; })); });
   dash.draw('chain-fin-legend2', function (el) { AU.legend(el, finCos().map(function (c, i) { return { name: c.name, color: AU.PAL[i % AU.PAL.length] }; })); });
   var PCT = function (v) { return v == null ? '—' : AU.fmt(v, 0) + '%'; }, AMT = function (v) { return v == null ? '—' : AU.fmt(v, v < 10 ? 1 : 0); };
-  dash.draw('chain-tw', function (el) {
-    var rows = AU.ok('tw_cm'); if (!rows) return AU.placeholder(el, dash.data('tw_cm'));
-    var cos = twCos(); if (!cos.length) return msg(el, '这条链没有对应的台湾公司。');
-    var f = window.AU_TWM, isAmt = f === 'rev_100m_twd';
-    var ms = Array.from(new Set(rows.map(function (r) { return r.month; }))).sort().filter(function (m) { return isAmt || f === 'mom_pct' ? true : m >= '2025-03'; });
-    AU.lines(el, ms.map(function (m) { return m.slice(2); }), cos.map(function (c, i) {
-      return { name: c.name, color: AU.PAL[i % AU.PAL.length], vals: ms.map(function (m) { var r = rows.find(function (x) { return x.code === c.code && x.month === m; }); return r && r[f] !== '' && r[f] != null ? +r[f] : null; }) };
-    }), { label: '台湾公司月营收折线图', yfmt: isAmt ? AMT : PCT, zero: !isAmt, h: 260 });
+  dash.draw('chain-qoq', function (el) {
+    var rows = AU.ok('fin'); if (!rows) return AU.placeholder(el, dash.data('fin'));
+    var cos = finCos(); if (!cos.length) return msg(el, '这条链没有接上季度财报的公司。');
+    var f = window.AU_QM;
+    var qs = Array.from(new Set(rows.filter(function (r) { return cur().fin.indexOf(r.group) >= 0; }).map(function (r) { return r.cal_q; }))).sort();
+    AU.lines(el, qs.map(function (q) { return q.slice(2); }), cos.map(function (c, i) {
+      return { name: c.name, color: AU.PAL[i % AU.PAL.length], vals: qs.map(function (q) { var r = rows.find(function (x) { return x.ticker === c.ticker && x.cal_q === q; }); return r && r[f] !== '' && r[f] != null ? +r[f] : null; }) };
+    }), { label: '全球头部公司季度环比折线图', yfmt: PCT, zero: true, h: 260 });
   });
   dash.draw('chain-global', function (el) {
     var rows = AU.ok('fin'); if (!rows || !AU.ok('fx')) return AU.placeholder(el, dash.data('fin'));
@@ -1054,8 +1061,8 @@ dash.calc('fin_view', {
     rows.forEach(function (r, i) {
       var yy = m.t + i * rowH, ry = +r.rev_yoy_pct, oy = r.op_yoy_pct === '' || r.op_yoy_pct == null ? null : Math.min(400, +r.op_yoy_pct);
       g.append('text').attr('x', 0).attr('y', yy + 18).text(r.company);
-      g.append('rect').attr('x', Math.min(x(0), x(ry))).attr('width', Math.abs(x(ry) - x(0))).attr('y', yy + 4).attr('height', 10).attr('fill', '#005285');
-      if (oy != null) g.append('rect').attr('x', Math.min(x(0), x(oy))).attr('width', Math.abs(x(oy) - x(0))).attr('y', yy + 15).attr('height', 10).attr('fill', '#C39B59');
+      g.append('rect').attr('x', Math.min(x(0), x(ry))).attr('width', Math.abs(x(ry) - x(0))).attr('y', yy + 4).attr('height', 10).attr('fill', '#4F6D8F');
+      if (oy != null) g.append('rect').attr('x', Math.min(x(0), x(oy))).attr('width', Math.abs(x(oy) - x(0))).attr('y', yy + 15).attr('height', 10).attr('fill', '#C8735F');
       g.append('text').attr('x', c.w - m.r + 6).attr('y', yy + 18).attr('class', 'au-ax').text('$' + AU.fmt(+r.revenue_usd, +r.revenue_usd >= 100 ? 0 : 1) + '亿');
       c.svg.append('rect').attr('x', 0).attr('y', yy).attr('width', c.w).attr('height', rowH).attr('fill', 'transparent')
         .on('pointermove', function (ev) { var p = d3.pointer(ev, el); c.tip.show([r.company + '  ' + r.quarter_end, '收入同比 ' + AU.sgn(ry, 1) + '%，环比 ' + (r.rev_qoq_pct === '' ? '—' : AU.sgn(+r.rev_qoq_pct, 1) + '%'), '经营利润同比 ' + (r.op_yoy_pct === '' || r.op_yoy_pct == null ? '—' : AU.sgn(+r.op_yoy_pct, 1) + '%'), '收入约 $' + AU.fmt(+r.revenue_usd, 1) + ' 亿'], p[0], p[1]); })
@@ -1090,12 +1097,12 @@ dash.calc('fin_view', {
     AU.xLabels(g, rows.map(function (r) { return r.cal_q.slice(2); }), function (i) { return m.l + bw * (i + .5); }, c.h, c.w, m);
     rows.forEach(function (r, i) {
       var v = +r.revenue, x0 = m.l + bw * i + bw * .18;
-      g.append('rect').attr('x', x0).attr('width', bw * .64).attr('y', y(Math.max(0, v))).attr('height', Math.abs(y(v) - y(0))).attr('fill', '#005285');
-      if (i === rows.length - 1) g.append('text').attr('x', x0 + bw * .32).attr('y', y(Math.max(0, v)) - 4).attr('text-anchor', 'middle').style('fill', '#005285').style('font-weight', 600).text(AU.fmt(v, 1));
+      g.append('rect').attr('x', x0).attr('width', bw * .64).attr('y', y(Math.max(0, v))).attr('height', Math.abs(y(v) - y(0))).attr('fill', '#4F6D8F');
+      if (i === rows.length - 1) g.append('text').attr('x', x0 + bw * .32).attr('y', y(Math.max(0, v)) - 4).attr('text-anchor', 'middle').style('fill', '#4F6D8F').style('font-weight', 600).text(AU.fmt(v, 1));
     });
     var pts = rows.map(function (r, i) { return [i, r.gm_pct === '' ? null : +r.gm_pct]; }).filter(function (p) { return p[1] != null; });
-    g.append('path').attr('fill', 'none').attr('stroke', '#C39B59').attr('stroke-width', 2).attr('d', d3.line().x(function (p) { return m.l + bw * (p[0] + .5); }).y(function (p) { return y2(p[1]); })(pts));
-    pts.forEach(function (p) { g.append('circle').attr('cx', m.l + bw * (p[0] + .5)).attr('cy', y2(p[1])).attr('r', 3).attr('fill', '#C39B59'); });
+    g.append('path').attr('fill', 'none').attr('stroke', '#C8735F').attr('stroke-width', 2).attr('d', d3.line().x(function (p) { return m.l + bw * (p[0] + .5); }).y(function (p) { return y2(p[1]); })(pts));
+    pts.forEach(function (p) { g.append('circle').attr('cx', m.l + bw * (p[0] + .5)).attr('cy', y2(p[1])).attr('r', 3).attr('fill', '#C8735F'); });
     rows.forEach(function (r, i) {
       c.svg.append('rect').attr('x', m.l + bw * i).attr('width', bw).attr('y', 0).attr('height', c.h).attr('fill', 'transparent')
         .on('pointermove', function (ev) { var p = d3.pointer(ev, el); c.tip.show([r.company + '  ' + r.quarter_end, '收入 ' + AU.fmt(+r.revenue, 1) + ' 亿' + (r.currency === 'USD' ? '美元' : '元'), '同比 ' + (r.rev_yoy_pct === '' ? '—' : AU.sgn(+r.rev_yoy_pct, 1) + '%'), '毛利率 ' + (r.gm_pct === '' ? '—' : AU.fmt(+r.gm_pct, 1) + '%')], p[0], p[1]); })
@@ -1176,13 +1183,13 @@ dash.calc('capex_annual', {
     rows.forEach(function (r, i) {
       var x0 = m.l + gw * i + gw * .06;
       g.append('text').attr('class', 'au-ax').attr('x', m.l + gw * (i + .5)).attr('y', c.h - 6).attr('text-anchor', 'middle').text(r.company);
-      [[r.y2024, '#C9C9C9'], [r.y2025, '#70A1C0'], [r.ytd2026, '#005285']].forEach(function (b, k) {
+      [[r.y2024, '#C9C9C9'], [r.y2025, '#93AECB'], [r.ytd2026, '#4F6D8F']].forEach(function (b, k) {
         g.append('rect').attr('x', x0 + k * (bw + 2)).attr('width', bw).attr('y', y(b[0])).attr('height', y(0) - y(b[0])).attr('fill', b[1]);
       });
       var gx = x0 + 3 * (bw + 2), mid = (r.guide_lo + r.guide_hi) / 2;
-      g.append('rect').attr('x', gx).attr('width', bw).attr('y', y(mid)).attr('height', y(0) - y(mid)).attr('fill', '#F1ECD7').attr('stroke', '#C39B59').attr('stroke-width', 1.5);
-      if (r.guide_hi > r.guide_lo) g.append('line').attr('x1', gx + bw / 2).attr('x2', gx + bw / 2).attr('y1', y(r.guide_hi)).attr('y2', y(r.guide_lo)).attr('stroke', '#C39B59').attr('stroke-width', 2);
-      g.append('text').attr('x', gx + bw / 2).attr('y', y(r.guide_hi) - 4).attr('text-anchor', 'middle').style('fill', '#C39B59').style('font-weight', 600).text(AU.fmt(mid, 0));
+      g.append('rect').attr('x', gx).attr('width', bw).attr('y', y(mid)).attr('height', y(0) - y(mid)).attr('fill', '#F4E1DA').attr('stroke', '#C8735F').attr('stroke-width', 1.5);
+      if (r.guide_hi > r.guide_lo) g.append('line').attr('x1', gx + bw / 2).attr('x2', gx + bw / 2).attr('y1', y(r.guide_hi)).attr('y2', y(r.guide_lo)).attr('stroke', '#C8735F').attr('stroke-width', 2);
+      g.append('text').attr('x', gx + bw / 2).attr('y', y(r.guide_hi) - 4).attr('text-anchor', 'middle').style('fill', '#C8735F').style('font-weight', 600).text(AU.fmt(mid, 0));
       c.svg.append('rect').attr('x', m.l + gw * i).attr('width', gw).attr('y', 0).attr('height', c.h).attr('fill', 'transparent')
         .on('pointermove', function (ev) { var p = d3.pointer(ev, el); c.tip.show([r.company, '2024 实际 ' + AU.fmt(r.y2024, 0) + '，2025 实际 ' + AU.fmt(r.y2025, 0), '2026 已报 ' + AU.fmt(r.ytd2026, 0) + '（' + r.q_reported + ' 个季度，' + r.actual_basis + '）', '2026 指引 ' + r.guide + '，隐含剩余每季 ' + (r.implied_q4 == null ? '—' : AU.fmt(r.implied_q4, 0)), r.basis], p[0], p[1]); })
         .on('pointerleave', function () { c.tip.hide(); });
@@ -1207,7 +1214,7 @@ dash.calc('capex_annual', {
 
 <script>
 (function () {
-  var KEY = [['DDR5 16Gb (2Gx8) 4800/5600', '#005285', 'DDR5 16Gb'], ['DDR4 8Gb (1Gx8) 3200', '#C39B59', 'DDR4 8Gb'], ['512Gb TLC', '#70A1C0', 'NAND 512Gb TLC'], ['256Gb TLC', '#7C7C7C', 'NAND 256Gb TLC']];
+  var KEY = [['DDR5 16Gb (2Gx8) 4800/5600', '#4F6D8F', 'DDR5 16Gb'], ['DDR4 8Gb (1Gx8) 3200', '#C8735F', 'DDR4 8Gb'], ['512Gb TLC', '#86A47A', 'NAND 512Gb TLC'], ['256Gb TLC', '#7C7C7C', 'NAND 256Gb TLC']];
   window.AU_DRAM = window.AU_DRAM || 'DDR5 16Gb (2Gx8) 4800/5600';
   function series(rows, item) { return rows.filter(function (r) { return r.item === item; }).sort(function (a, b) { return a.date < b.date ? -1 : 1; }); }
   function timeChart(el, sets, o) {
@@ -1273,10 +1280,10 @@ dash.calc('capex_annual', {
     var g = c.svg.append('g');
     y.ticks(4).forEach(function (v) { g.append('line').attr('x1', m.l).attr('x2', c.w - m.r).attr('y1', y(v)).attr('y2', y(v)).attr('stroke', AU.GRID); g.append('text').attr('class', 'au-ax').attr('x', m.l - 4).attr('y', y(v) + 4).attr('text-anchor', 'end').text(v); });
     x.ticks(3).forEach(function (t) { g.append('text').attr('class', 'au-ax').attr('x', x(t)).attr('y', c.h - 5).attr('text-anchor', 'middle').text(d3.utcFormat('%y-%m')(t)); });
-    g.append('path').attr('fill', '#DDE9F7').attr('d', d3.area().x(function (p) { return x(pd(p.d)); }).y0(y(0)).y1(function (p) { return y(p.v); })(pts));
-    g.append('path').attr('fill', 'none').attr('stroke', '#005285').attr('stroke-width', 1.8).attr('d', d3.line().x(function (p) { return x(pd(p.d)); }).y(function (p) { return y(p.v); })(pts));
-    var l = pts[pts.length - 1]; g.append('circle').attr('cx', x(pd(l.d))).attr('cy', y(l.v)).attr('r', 3).attr('fill', '#005285');
-    g.append('text').attr('x', x(pd(l.d)) + 5).attr('y', y(l.v) + 4).style('fill', '#005285').style('font-weight', 600).text('$' + AU.fmt(l.v, l.v < 10 ? 2 : 1));
+    g.append('path').attr('fill', '#E3EBF3').attr('d', d3.area().x(function (p) { return x(pd(p.d)); }).y0(y(0)).y1(function (p) { return y(p.v); })(pts));
+    g.append('path').attr('fill', 'none').attr('stroke', '#4F6D8F').attr('stroke-width', 1.8).attr('d', d3.line().x(function (p) { return x(pd(p.d)); }).y(function (p) { return y(p.v); })(pts));
+    var l = pts[pts.length - 1]; g.append('circle').attr('cx', x(pd(l.d))).attr('cy', y(l.v)).attr('r', 3).attr('fill', '#4F6D8F');
+    g.append('text').attr('x', x(pd(l.d)) + 5).attr('y', y(l.v) + 4).style('fill', '#4F6D8F').style('font-weight', 600).text('$' + AU.fmt(l.v, l.v < 10 ? 2 : 1));
     c.svg.append('rect').attr('x', m.l).attr('y', 0).attr('width', c.w - m.l - m.r).attr('height', c.h).attr('fill', 'transparent')
       .on('pointermove', function (ev) { var p = d3.pointer(ev, el), sp = d3.pointer(ev, c.svg.node()), t = x.invert(sp[0]), best = null; pts.forEach(function (q) { if (!best || Math.abs(pd(q.d) - t) < Math.abs(pd(best.d) - t)) best = q; }); c.tip.show([label, best.d + '  $' + AU.fmt(best.v, 3)], p[0], p[1]); })
       .on('pointerleave', function () { c.tip.hide(); });
@@ -1284,15 +1291,48 @@ dash.calc('capex_annual', {
   dash.draw('dram-one', function (el) {
     var rows = AU.ok('dram_h'); if (!rows) return AU.placeholder(el, dash.data('dram_h'));
     var s = series(rows, window.AU_DRAM);
-    timeChart(el, [{ name: window.AU_DRAM, color: '#005285', pts: s.map(function (r) { return { d: r.date, v: +r.avg }; }) }], { label: '所选存储品项现货均价折线图', yfmt: function (v) { return '$' + AU.fmt(v, 2); } });
+    timeChart(el, [{ name: window.AU_DRAM, color: '#4F6D8F', pts: s.map(function (r) { return { d: r.date, v: +r.avg }; }) }], { label: '所选存储品项现货均价折线图', yfmt: function (v) { return '$' + AU.fmt(v, 2); } });
   });
+})();
+</script>
+
+<script>
+// ---- 分区 tab ----
+(function () {
+  function show(id) {
+    var btns = document.querySelectorAll('.au-tab[data-tab]'), found = false;
+    for (var i = 0; i < btns.length; i++) if (btns[i].getAttribute('data-tab') === id) found = true;
+    if (!found) return false;
+    for (var j = 0; j < btns.length; j++) {
+      var b = btns[j], on = b.getAttribute('data-tab') === id;
+      b.setAttribute('aria-selected', on ? 'true' : 'false');
+      b.tabIndex = on ? 0 : -1;
+      var p = document.getElementById(b.getAttribute('data-tab'));
+      if (p) p.hidden = !on;
+    }
+    return true;
+  }
+  var btns = document.querySelectorAll('.au-tab[data-tab]');
+  for (var i = 0; i < btns.length; i++) {
+    btns[i].addEventListener('click', function (e) {
+      var id = e.currentTarget.getAttribute('data-tab');
+      if (show(id)) dash.setLink(id);
+    });
+  }
+  var h = (location.hash || '').replace('#', '');
+  if (h) {
+    if (!show(h)) {
+      var el = document.getElementById(h), sec = el && el.closest ? el.closest('section.au-sec') : null;
+      if (sec) show(sec.id);
+    }
+  }
 })();
 </script>
 
 </div>
 <script>
 dash._runAll();
-(function () { var t = null, w = window.innerWidth; window.addEventListener('resize', function () { if (Math.abs(window.innerWidth - w) < 8) return; w = window.innerWidth; clearTimeout(t); t = setTimeout(function () { dash._runAll(); }, 200); }); })();
+dash._watch();
 </script>
 </body>
 </html>
